@@ -36,29 +36,55 @@ class _Home extends StatefulWidget {
 }
 
 class _HomeState extends State<_Home> {
-  String ping = '…';
-  String idea = '…';
+  final _controller = TextEditingController();
   bool busy = false;
+  List<Map<String, dynamic>> notes = [];
+  String ping = '…';
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _loadAll();
   }
 
-  Future<void> _load() async {
+  Future<void> _loadAll() async {
+    setState(() => busy = true);
     try {
       final p = await ApiClient.ping();
-      final i = await ApiClient.aiMock(['humans', 'reading']);
+      final list = await ApiClient.getNotes();
       setState(() {
         ping = p;
-        idea = i;
+        notes = list;
       });
     } catch (e) {
-      setState(() {
-        ping = 'error';
-        idea = '$e';
-      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      setState(() => busy = false);
+    }
+  }
+
+  Future<void> _add() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+    setState(() => busy = true);
+    try {
+      await ApiClient.addNote(text);
+      _controller.clear();
+      await _loadAll();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      setState(() => busy = false);
+    }
+  }
+
+  Future<void> _delete(int id) async {
+    setState(() => busy = true);
+    try {
+      await ApiClient.deleteNote(id);
+      await _loadAll();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      setState(() => busy = false);
     }
   }
 
@@ -67,31 +93,70 @@ class _HomeState extends State<_Home> {
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
+          constraints: const BoxConstraints(maxWidth: 600),
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
                   'VitaminX — Hello 👋',
                   style: TextStyle(fontSize: 22),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 4),
                 Text('Ping: $ping'),
-                const SizedBox(height: 8),
-                Text('AI mock: $idea'),
                 const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed:
-                      busy
-                          ? null
-                          : () async {
-                            setState(() => busy = true);
-                            await _load();
-                            setState(() => busy = false);
-                          },
-                  child: Text(busy ? 'Loading…' : 'Refresh'),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _controller,
+                        decoration: const InputDecoration(
+                          hintText: 'Type a note',
+                          border: OutlineInputBorder(),
+                        ),
+                        onSubmitted: (_) => _add(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: busy ? null : _add,
+                      child: Text(busy ? '...' : 'Add'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Flexible(
+                  child:
+                      notes.isEmpty
+                          ? const Text('No notes yet')
+                          : ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: notes.length,
+                            separatorBuilder:
+                                (_, __) => const Divider(height: 1),
+                            itemBuilder: (context, i) {
+                              final n = notes[i];
+                              final id = n['id'] as int;
+                              final text = n['text'] as String;
+                              final ts = (n['created_at'] as String?) ?? '';
+                              return ListTile(
+                                dense: true,
+                                title: Text(text),
+                                subtitle: Text(ts),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.delete),
+                                  onPressed: busy ? null : () => _delete(id),
+                                ),
+                              );
+                            },
+                          ),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton(
+                  onPressed: busy ? null : _loadAll,
+                  child: const Text('Refresh'),
                 ),
               ],
             ),
