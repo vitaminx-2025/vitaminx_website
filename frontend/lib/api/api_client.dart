@@ -1,62 +1,58 @@
-// lib/api/api_client.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../models/note.dart';
 
 class ApiClient {
-  static const String _host = '127.0.0.1:8000';
+  static const String baseUrl = 'http://127.0.0.1:8000';
 
   static Future<String> ping() async {
-    final uri = Uri.http(_host, '/api/ping');
+    final res = await http.get(Uri.parse('$baseUrl/api/ping'));
+    if (res.statusCode == 200) {
+      return (json.decode(res.body) as Map)['message'] as String;
+    }
+    throw Exception('Ping failed ${res.statusCode}');
+  }
+
+  static Future<List<Note>> getNotes({String? q}) async {
+    final uri = Uri.parse(
+      '$baseUrl/api/notes',
+    ).replace(queryParameters: q == null || q.isEmpty ? null : {'q': q});
     final res = await http.get(uri);
     if (res.statusCode == 200) {
-      return (jsonDecode(res.body) as Map<String, dynamic>)['message']
-          as String;
+      final data = json.decode(res.body) as List<dynamic>;
+      return data.map((e) => Note.fromJson(e as Map<String, dynamic>)).toList();
     }
-    throw Exception('Ping failed: ${res.statusCode}');
+    throw Exception('Get notes failed ${res.statusCode}');
   }
 
-  static Future<String> aiMock(List<String> texts) async {
-    final uri = Uri.http(_host, '/api/ai/mock');
+  static Future<Note> addNote(String text) async {
     final res = await http.post(
-      uri,
+      Uri.parse('$baseUrl/api/notes'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'texts': texts}),
+      body: json.encode({'text': text}),
     );
     if (res.statusCode == 200) {
-      return (jsonDecode(res.body) as Map<String, dynamic>)['result'] as String;
+      return Note.fromJson(json.decode(res.body) as Map<String, dynamic>);
     }
-    throw Exception('AI mock failed: ${res.statusCode}');
+    throw Exception('Add note failed ${res.statusCode}');
   }
 
-  // -------- Notes --------
-  static Future<List<Map<String, dynamic>>> getNotes() async {
-    final uri = Uri.http(_host, '/api/notes');
-    final res = await http.get(uri);
-    if (res.statusCode == 200) {
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      final list = (data['items'] as List).cast<Map<String, dynamic>>();
-      return list;
-    }
-    throw Exception('getNotes failed: ${res.statusCode}');
-  }
-
-  static Future<void> addNote(String text) async {
-    final uri = Uri.http(_host, '/api/notes');
-    final res = await http.post(
-      uri,
+  static Future<Note> updateNote(int id, String text) async {
+    final res = await http.put(
+      Uri.parse('$baseUrl/api/notes/$id'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'text': text}),
+      body: json.encode({'text': text}),
     );
-    if (res.statusCode != 200) {
-      throw Exception('addNote failed: ${res.statusCode}');
+    if (res.statusCode == 200) {
+      return Note.fromJson(json.decode(res.body) as Map<String, dynamic>);
     }
+    throw Exception('Update failed ${res.statusCode}');
   }
 
   static Future<void> deleteNote(int id) async {
-    final uri = Uri.http(_host, '/api/notes/$id');
-    final res = await http.delete(uri);
+    final res = await http.delete(Uri.parse('$baseUrl/api/notes/$id'));
     if (res.statusCode != 200) {
-      throw Exception('deleteNote failed: ${res.statusCode}');
+      throw Exception('Delete failed ${res.statusCode}');
     }
   }
 }

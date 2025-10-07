@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api/api_client.dart';
+import 'models/note.dart';
 
 void main() {
   runApp(const VitaminXApp());
@@ -36,10 +37,11 @@ class _Home extends StatefulWidget {
 }
 
 class _HomeState extends State<_Home> {
-  final _controller = TextEditingController();
+  final _newController = TextEditingController();
+  final _searchController = TextEditingController();
   bool busy = false;
-  List<Map<String, dynamic>> notes = [];
   String ping = '…';
+  List<Note> notes = [];
 
   @override
   void initState() {
@@ -47,43 +49,91 @@ class _HomeState extends State<_Home> {
     _loadAll();
   }
 
-  Future<void> _loadAll() async {
+  Future<void> _loadAll({String? q}) async {
     setState(() => busy = true);
     try {
       final p = await ApiClient.ping();
-      final list = await ApiClient.getNotes();
+      final list = await ApiClient.getNotes(q: q);
       setState(() {
         ping = p;
         notes = list;
       });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      _toast('$e');
     } finally {
       setState(() => busy = false);
     }
   }
 
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   Future<void> _add() async {
-    final text = _controller.text.trim();
+    final text = _newController.text.trim();
     if (text.isEmpty) return;
     setState(() => busy = true);
     try {
       await ApiClient.addNote(text);
-      _controller.clear();
-      await _loadAll();
+      _newController.clear();
+      await _loadAll(q: _searchController.text.trim());
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      _toast('$e');
+    } finally {
       setState(() => busy = false);
     }
   }
 
-  Future<void> _delete(int id) async {
+  Future<void> _edit(Note n) async {
+    final ctrl = TextEditingController(text: n.text);
+    final updated = await showDialog<String>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Edit note'),
+            content: TextField(
+              controller: ctrl,
+              autofocus: true,
+              decoration: const InputDecoration(border: OutlineInputBorder()),
+              onSubmitted: (_) => Navigator.of(context).pop(ctrl.text.trim()),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+    );
+    if (updated == null) return;
+    if (updated.isEmpty) {
+      _toast('Text required');
+      return;
+    }
     setState(() => busy = true);
     try {
-      await ApiClient.deleteNote(id);
-      await _loadAll();
+      await ApiClient.updateNote(n.id, updated);
+      await _loadAll(q: _searchController.text.trim());
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      _toast('$e');
+    } finally {
+      setState(() => busy = false);
+    }
+  }
+
+  Future<void> _delete(Note n) async {
+    setState(() => busy = true);
+    try {
+      await ApiClient.deleteNote(n.id);
+      await _loadAll(q: _searchController.text.trim());
+    } catch (e) {
+      _toast('$e');
+    } finally {
       setState(() => busy = false);
     }
   }
@@ -93,25 +143,55 @@ class _HomeState extends State<_Home> {
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 600),
+          constraints: const BoxConstraints(maxWidth: 700),
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
                   'VitaminX — Hello 👋',
                   style: TextStyle(fontSize: 22),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
                 Text('Ping: $ping'),
                 const SizedBox(height: 16),
+
+                // Search
                 Row(
                   children: [
                     Expanded(
                       child: TextField(
-                        controller: _controller,
+                        controller: _searchController,
+                        decoration: const InputDecoration(
+                          hintText: 'Search notes...',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.search),
+                        ),
+                        onSubmitted: (v) => _loadAll(q: v.trim()),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      onPressed:
+                          busy
+                              ? null
+                              : () =>
+                                  _loadAll(q: _searchController.text.trim()),
+                      child: const Text('Go'),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // Add
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _newController,
                         decoration: const InputDecoration(
                           hintText: 'Type a note',
                           border: OutlineInputBorder(),
@@ -126,11 +206,14 @@ class _HomeState extends State<_Home> {
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 16),
+
+                // List
                 Flexible(
                   child:
                       notes.isEmpty
-                          ? const Text('No notes yet')
+                          ? const Text('No notes')
                           : ListView.separated(
                             shrinkWrap: true,
                             itemCount: notes.length,
@@ -138,24 +221,35 @@ class _HomeState extends State<_Home> {
                                 (_, __) => const Divider(height: 1),
                             itemBuilder: (context, i) {
                               final n = notes[i];
-                              final id = n['id'] as int;
-                              final text = n['text'] as String;
-                              final ts = (n['created_at'] as String?) ?? '';
                               return ListTile(
-                                dense: true,
-                                title: Text(text),
-                                subtitle: Text(ts),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.delete),
-                                  onPressed: busy ? null : () => _delete(id),
+                                title: Text(n.text),
+                                subtitle: Text(n.createdAt),
+                                trailing: Wrap(
+                                  spacing: 4,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.edit),
+                                      onPressed: busy ? null : () => _edit(n),
+                                      tooltip: 'Edit',
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete),
+                                      onPressed: busy ? null : () => _delete(n),
+                                      tooltip: 'Delete',
+                                    ),
+                                  ],
                                 ),
                               );
                             },
                           ),
                 ),
+
                 const SizedBox(height: 8),
                 OutlinedButton(
-                  onPressed: busy ? null : _loadAll,
+                  onPressed:
+                      busy
+                          ? null
+                          : () => _loadAll(q: _searchController.text.trim()),
                   child: const Text('Refresh'),
                 ),
               ],

@@ -1,15 +1,35 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from sqlmodel import SQLModel, Field, Session, create_engine, select
+from datetime import datetime
+from typing import Optional, List
 
-app = FastAPI(title="VitaminX API")
+# ---------- DB ----------
+engine = create_engine("sqlite:///vitaminx.db", echo=False)
 
+class Note(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    text: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+def init_db() -> None:
+    SQLModel.metadata.create_all(engine)
+
+# ---------- App ----------
+app = FastAPI(title="VitaminX API - Day4")
+
+# dev CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
-    allow_credentials=False,
+    allow_origins=["*"],  # dev only
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
 
 @app.get("/health")
 def health():
@@ -19,35 +39,48 @@ def health():
 def ping():
     return {"message": "pong"}
 
-@app.post("/api/ai/mock")
-def ai_mock(payload: dict):
-    texts = payload.get("texts", [])
-    joined = " | ".join([str(t) for t in texts]) if texts else "no input"
-    return {"result": f"AI idea from {joined}"}
+# ---------- Notes ----------
+@app.get("/api/notes", response_model=List[Note])
+def list_notes(q: Optional[str] = Query(default=None)):
+    with Session(engine) as s:
+        stmt = select(Note).order_by(Note.id.desc())
+        if q:
+            stmt = stmt.where(Note.text.contains(q))
+        return s.exec(stmt).all()
 
-# ---- Simple in-memory notes API (reset on server restart) ----
-_notes = []
-_next_id = 1
-
-@app.get("/api/notes")
-def list_notes():
-    return {"items": _notes}
-
-@app.post("/api/notes")
-def add_note(payload: dict):
-    global _next_id
-    text = (payload.get("text") or "").strip()
+@app.post("/api/notes", response_model=Note)
+def create_note(payload: dict):
+    text = (payload or {}).get("text", "").strip()
     if not text:
-        raise HTTPException(status_code=400, detail="text is required")
-    note = {"id": _next_id, "text": text}
-    _notes.append(note)
-    _next_id += 1
-    return note
+        raise HTTPException(status_code=400, detail="text required")
+    note = Note(text=text)
+    with Session(engine) as s:
+        s.add(note)
+        s.commit()
+        s.refresh(note)
+        return note
+
+@app.put("/api/notes/{note_id}", response_model=Note)
+def update_note(note_id: int, payload: dict):
+    new_text = (payload or {}).get("text", "").strip()
+    if not new_text:
+        raise HTTPException(status_code=400, detail="text required")
+    with Session(engine) as s:
+        note = s.get(Note, note_id)
+        if not note:
+            raise HTTPException(status_code=404, detail="not found")
+        note.text = new_text
+        s.add(note)
+        s.commit()
+        s.refresh(note)
+        return note
 
 @app.delete("/api/notes/{note_id}")
 def delete_note(note_id: int):
-    idx = next((i for i, n in enumerate(_notes) if n["id"] == note_id), None)
-    if idx is None:
-        raise HTTPException(status_code=404, detail="not found")
-    _notes.pop(idx)
-    return {"ok": True}
+    with Session(engine) as s:
+        note = s.get(Note, note_id)
+        if not note:
+            raise HTTPException(status_code=404, detail="not found")
+        s.delete(note)
+        s.commit()
+        return {"ok": True}
