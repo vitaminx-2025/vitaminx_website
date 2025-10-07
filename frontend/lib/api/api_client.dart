@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/note.dart';
+import '../models/notes_page.dart';
 
 class ApiClient {
   static const String baseUrl = 'http://127.0.0.1:8000';
@@ -13,14 +14,21 @@ class ApiClient {
     throw Exception('Ping failed ${res.statusCode}');
   }
 
-  static Future<List<Note>> getNotes({String? q}) async {
-    final uri = Uri.parse(
-      '$baseUrl/api/notes',
-    ).replace(queryParameters: q == null || q.isEmpty ? null : {'q': q});
+  static Future<NotesPage> getNotes({
+    String? q,
+    int limit = 20,
+    int offset = 0,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/notes').replace(
+      queryParameters: {
+        if (q != null && q.isNotEmpty) 'q': q,
+        'limit': '$limit',
+        'offset': '$offset',
+      },
+    );
     final res = await http.get(uri);
     if (res.statusCode == 200) {
-      final data = json.decode(res.body) as List<dynamic>;
-      return data.map((e) => Note.fromJson(e as Map<String, dynamic>)).toList();
+      return NotesPage.fromJson(json.decode(res.body) as Map<String, dynamic>);
     }
     throw Exception('Get notes failed ${res.statusCode}');
   }

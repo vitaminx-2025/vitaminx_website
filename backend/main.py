@@ -1,10 +1,10 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import SQLModel, Field, Session, create_engine, select
+from sqlalchemy import func
 from datetime import datetime
 from typing import Optional, List
 
-# ---------- DB ----------
 engine = create_engine("sqlite:///vitaminx.db", echo=False)
 
 class Note(SQLModel, table=True):
@@ -12,13 +12,18 @@ class Note(SQLModel, table=True):
     text: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
+class NotesPage(SQLModel):
+    items: List[Note]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
 
-# ---------- App ----------
-app = FastAPI(title="VitaminX API - Day4")
+app = FastAPI(title="VitaminX API - Day5")
 
-# dev CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # dev only
@@ -39,14 +44,25 @@ def health():
 def ping():
     return {"message": "pong"}
 
-# ---------- Notes ----------
-@app.get("/api/notes", response_model=List[Note])
-def list_notes(q: Optional[str] = Query(default=None)):
+@app.get("/api/notes", response_model=NotesPage)
+def list_notes(
+    q: Optional[str] = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
     with Session(engine) as s:
-        stmt = select(Note).order_by(Note.id.desc())
+        base = select(Note)
         if q:
-            stmt = stmt.where(Note.text.contains(q))
-        return s.exec(stmt).all()
+            base = base.where(Note.text.contains(q))
+        items = s.exec(base.order_by(Note.id.desc()).offset(offset).limit(limit)).all()
+
+        count_stmt = select(func.count(Note.id))
+        if q:
+            count_stmt = count_stmt.where(Note.text.contains(q))
+        total = s.exec(count_stmt).one()
+
+        has_more = offset + len(items) < total
+        return NotesPage(items=items, total=total, limit=limit, offset=offset, has_more=has_more)
 
 @app.post("/api/notes", response_model=Note)
 def create_note(payload: dict):

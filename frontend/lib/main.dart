@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api/api_client.dart';
 import 'models/note.dart';
+import 'models/notes_page.dart';
 
 void main() {
   runApp(const VitaminXApp());
@@ -39,29 +41,78 @@ class _Home extends StatefulWidget {
 class _HomeState extends State<_Home> {
   final _newController = TextEditingController();
   final _searchController = TextEditingController();
+  final _scrollCtrl = ScrollController();
+
   bool busy = false;
   String ping = '…';
   List<Note> notes = [];
+  int total = 0;
+  int limit = 20;
+  int offset = 0;
+  String currentQuery = '';
+  Timer? _debounce;
 
   @override
   void initState() {
     super.initState();
-    _loadAll();
+    _load(reset: true);
+    _scrollCtrl.addListener(_maybeLoadMore);
+    _searchController.addListener(_debouncedSearch);
   }
 
-  Future<void> _loadAll({String? q}) async {
-    setState(() => busy = true);
+  @override
+  void dispose() {
+    _newController.dispose();
+    _searchController.dispose();
+    _scrollCtrl.dispose();
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _debouncedSearch() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      currentQuery = _searchController.text.trim();
+      _load(reset: true);
+    });
+  }
+
+  Future<void> _load({bool reset = false}) async {
+    if (reset) {
+      setState(() {
+        busy = true;
+        offset = 0;
+        notes = [];
+      });
+    } else {
+      setState(() => busy = true);
+    }
     try {
       final p = await ApiClient.ping();
-      final list = await ApiClient.getNotes(q: q);
+      final page = await ApiClient.getNotes(
+        q: currentQuery,
+        limit: limit,
+        offset: offset,
+      );
       setState(() {
         ping = p;
-        notes = list;
+        total = page.total;
+        offset = page.offset + page.items.length;
+        notes.addAll(page.items);
       });
     } catch (e) {
       _toast('$e');
     } finally {
       setState(() => busy = false);
+    }
+  }
+
+  void _maybeLoadMore() {
+    if (_scrollCtrl.position.pixels >=
+        _scrollCtrl.position.maxScrollExtent - 120) {
+      if (notes.length < total && !busy) {
+        _load(reset: false);
+      }
     }
   }
 
@@ -77,7 +128,7 @@ class _HomeState extends State<_Home> {
     try {
       await ApiClient.addNote(text);
       _newController.clear();
-      await _loadAll(q: _searchController.text.trim());
+      await _load(reset: true);
     } catch (e) {
       _toast('$e');
     } finally {
@@ -110,15 +161,11 @@ class _HomeState extends State<_Home> {
             ],
           ),
     );
-    if (updated == null) return;
-    if (updated.isEmpty) {
-      _toast('Text required');
-      return;
-    }
+    if (updated == null || updated.isEmpty) return;
     setState(() => busy = true);
     try {
       await ApiClient.updateNote(n.id, updated);
-      await _loadAll(q: _searchController.text.trim());
+      await _load(reset: true);
     } catch (e) {
       _toast('$e');
     } finally {
@@ -130,7 +177,7 @@ class _HomeState extends State<_Home> {
     setState(() => busy = true);
     try {
       await ApiClient.deleteNote(n.id);
-      await _loadAll(q: _searchController.text.trim());
+      await _load(reset: true);
     } catch (e) {
       _toast('$e');
     } finally {
@@ -138,8 +185,24 @@ class _HomeState extends State<_Home> {
     }
   }
 
+  String _relative(String iso) {
+    DateTime dt;
+    try {
+      dt = DateTime.parse(iso).toLocal();
+    } catch (_) {
+      return iso;
+    }
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final hasMore = notes.length < total;
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
@@ -148,7 +211,6 @@ class _HomeState extends State<_Home> {
             padding: const EdgeInsets.all(24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
                   'VitaminX — Hello 👋',
@@ -158,27 +220,21 @@ class _HomeState extends State<_Home> {
                 Text('Ping: $ping'),
                 const SizedBox(height: 16),
 
-                // Search
                 Row(
                   children: [
                     Expanded(
                       child: TextField(
                         controller: _searchController,
                         decoration: const InputDecoration(
-                          hintText: 'Search notes...',
+                          hintText: 'Search notes',
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.search),
                         ),
-                        onSubmitted: (v) => _loadAll(q: v.trim()),
                       ),
                     ),
                     const SizedBox(width: 8),
                     OutlinedButton(
-                      onPressed:
-                          busy
-                              ? null
-                              : () =>
-                                  _loadAll(q: _searchController.text.trim()),
+                      onPressed: busy ? null : () => _load(reset: true),
                       child: const Text('Go'),
                     ),
                   ],
@@ -186,7 +242,6 @@ class _HomeState extends State<_Home> {
 
                 const SizedBox(height: 16),
 
-                // Add
                 Row(
                   children: [
                     Expanded(
@@ -209,49 +264,45 @@ class _HomeState extends State<_Home> {
 
                 const SizedBox(height: 16),
 
-                // List
-                Flexible(
-                  child:
-                      notes.isEmpty
-                          ? const Text('No notes')
-                          : ListView.separated(
-                            shrinkWrap: true,
-                            itemCount: notes.length,
-                            separatorBuilder:
-                                (_, __) => const Divider(height: 1),
-                            itemBuilder: (context, i) {
-                              final n = notes[i];
-                              return ListTile(
-                                title: Text(n.text),
-                                subtitle: Text(n.createdAt),
-                                trailing: Wrap(
-                                  spacing: 4,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.edit),
-                                      onPressed: busy ? null : () => _edit(n),
-                                      tooltip: 'Edit',
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete),
-                                      onPressed: busy ? null : () => _delete(n),
-                                      tooltip: 'Delete',
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: () => _load(reset: true),
+                    child: ListView.separated(
+                      controller: _scrollCtrl,
+                      itemCount: notes.length + (hasMore ? 1 : 0),
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, i) {
+                        if (i >= notes.length) {
+                          return const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+                        final n = notes[i];
+                        return ListTile(
+                          title: Text(n.text),
+                          subtitle: Text(_relative(n.createdAt)),
+                          trailing: Wrap(
+                            spacing: 4,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit),
+                                onPressed: busy ? null : () => _edit(n),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete),
+                                onPressed: busy ? null : () => _delete(n),
+                              ),
+                            ],
                           ),
+                        );
+                      },
+                    ),
+                  ),
                 ),
 
                 const SizedBox(height: 8),
-                OutlinedButton(
-                  onPressed:
-                      busy
-                          ? null
-                          : () => _loadAll(q: _searchController.text.trim()),
-                  child: const Text('Refresh'),
-                ),
+                Text('Total: $total  Loaded: ${notes.length}'),
               ],
             ),
           ),
