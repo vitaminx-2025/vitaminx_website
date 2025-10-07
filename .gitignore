@@ -13,3 +13,16 @@ frontend/pubspec.lock
 
 # macOS / OS
 .DS_Store
+# Flutter
+.dart_tool/
+build/
+ios/Pods/
+android/.gradle/
+android/app/build/
+
+# Python
+.venv/
+__pycache__/
+
+# Local data
+backend/vitaminx.db
