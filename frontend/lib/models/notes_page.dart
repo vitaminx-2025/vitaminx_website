@@ -15,14 +15,16 @@ class NotesPage {
     required this.hasMore,
   });
 
-  factory NotesPage.fromJson(Map<String, dynamic> j) => NotesPage(
-    items:
-        (j['items'] as List)
-            .map((e) => Note.fromJson(e as Map<String, dynamic>))
-            .toList(),
-    total: j['total'] as int,
-    limit: j['limit'] as int,
-    offset: j['offset'] as int,
-    hasMore: j['has_more'] as bool,
-  );
+  factory NotesPage.fromJson(Map<String, dynamic> json) {
+    return NotesPage(
+      items:
+          (json['items'] as List)
+              .map((e) => Note.fromJson(e as Map<String, dynamic>))
+              .toList(),
+      total: json['total'] as int,
+      limit: json['limit'] as int,
+      offset: json['offset'] as int,
+      hasMore: json['has_more'] as bool,
+    );
+  }
 }

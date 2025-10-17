@@ -5,9 +5,11 @@ class Note {
 
   Note({required this.id, required this.text, required this.createdAt});
 
-  factory Note.fromJson(Map<String, dynamic> j) => Note(
-    id: j['id'] as int,
-    text: j['text'] as String,
-    createdAt: j['created_at'] as String,
-  );
+  factory Note.fromJson(Map<String, dynamic> json) {
+    return Note(
+      id: json['id'] as int,
+      text: json['text'] as String,
+      createdAt: json['created_at'] as String,
+    );
+  }
 }

@@ -1,8 +1,8 @@
+import 'dart:developer' as dev;
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api/api_client.dart';
 import 'models/note.dart';
-import 'models/notes_page.dart';
 
 void main() {
   runApp(const VitaminXApp());
@@ -13,13 +13,14 @@ class VitaminXApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    dev.log('VitaminX demo v0.7 started');
+
     return MaterialApp(
       title: 'VitaminX',
       theme: ThemeData(
         brightness: Brightness.dark,
         colorScheme: const ColorScheme.dark(
           surface: Color(0xFF111316),
-          background: Color(0xFF0E0F12),
           primary: Color(0xFF7C9EFF),
         ),
         scaffoldBackgroundColor: const Color(0xFF0E0F12),

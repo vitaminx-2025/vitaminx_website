@@ -6,6 +6,11 @@ import '../models/notes_page.dart';
 class ApiClient {
   static const String baseUrl = 'http://127.0.0.1:8000';
 
+  // ---------- Export URIs ----------
+  static Uri get exportCsvUri => Uri.parse('$baseUrl/api/notes/export');
+  static Uri get exportJsonUri => Uri.parse('$baseUrl/api/notes/export.json');
+
+  // ---------- Ping ----------
   static Future<String> ping() async {
     final res = await http.get(Uri.parse('$baseUrl/api/ping'));
     if (res.statusCode == 200) {
@@ -14,6 +19,7 @@ class ApiClient {
     throw Exception('Ping failed ${res.statusCode}');
   }
 
+  // ---------- Get Notes (with search + pagination) ----------
   static Future<NotesPage> getNotes({
     String? q,
     int limit = 20,
@@ -33,6 +39,7 @@ class ApiClient {
     throw Exception('Get notes failed ${res.statusCode}');
   }
 
+  // ---------- Add Note ----------
   static Future<Note> addNote(String text) async {
     final res = await http.post(
       Uri.parse('$baseUrl/api/notes'),
@@ -45,6 +52,7 @@ class ApiClient {
     throw Exception('Add note failed ${res.statusCode}');
   }
 
+  // ---------- Update Note ----------
   static Future<Note> updateNote(int id, String text) async {
     final res = await http.put(
       Uri.parse('$baseUrl/api/notes/$id'),
@@ -57,6 +65,7 @@ class ApiClient {
     throw Exception('Update failed ${res.statusCode}');
   }
 
+  // ---------- Delete Note ----------
   static Future<void> deleteNote(int id) async {
     final res = await http.delete(Uri.parse('$baseUrl/api/notes/$id'));
     if (res.statusCode != 200) {
